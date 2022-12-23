@@ -1,0 +1,87 @@
+on:
+  push:
+    branches: [master]
+
+name: Deploy to Amazon ECS
+
+env:
+  NODE_VERSION: "12.18.0"
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Git short sha
+        id: vars
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-central-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      #- name: Install Node Modules and build webpack
+      #  id: npm-install
+      #  run: |
+      #    curl -L https://cc-cdn.com/generic/scripts/v1/cc_c2a.min.js -o ./public/js/cc_c2a.min.js
+      #    npm install
+      #    npm run production
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ibot-link
+          IMAGE_TAG: ${{ steps.vars.outputs.sha_short }}
+          DOCKER_AUTH_GITHUB: ${{ secrets.DOCKER_AUTH_GITHUB }}
+          REPMAN_TOKEN: ${{ secrets.REPMAN_TOKEN }}
+        run: |
+          echo $DOCKER_AUTH_GITHUB | docker login ghcr.io -u trevone --password-stdin
+          docker build --target=site-prod --build-arg repman_token=$REPMAN_TOKEN -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: website
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: website
+          cluster: default
+          wait-for-service-stability: false
+
+      - name: Logout of Amazon ECR
+        if: always()
+        run: docker logout ${{ steps.login-ecr.outputs.registry }}
+
+      #- name: Create Sentry release
+      #  uses: getsentry/action-release@v1.0.0
+      #  env:
+       #   SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+       #   SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+       #   SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+       # with:
+       #   environment: production
