@@ -16,15 +16,18 @@ use App\Http\Controllers\ProfileController;
 |
 */
 
+Route::get('health', function () {
+    return "OK";
+});
+
 Route::get('/', function () {
     return view('welcome');
 });
 
 Route::get('/dashboard', function () {
     $units = Session::get('units');
-    $packs = Session::get('packs');
     $send = Session::get('send');
-    return view('dashboard', compact(['units', 'packs', 'send']));
+    return view('dashboard', compact(['units', 'send']));
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
