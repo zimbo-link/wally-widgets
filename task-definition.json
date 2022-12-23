@@ -68,7 +68,7 @@
           },
           {
             "name": "DB_DATABASE",
-            "value": "ibot"
+            "value": "website"
           },
           {
             "name": "DB_HOST",
